@@ -1,0 +1,63 @@
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: test-rabbitmq
+spec:
+  serviceName: rabbitmq
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      serviceAccountName: rabbitmq #important for rbac rules
+      terminationGracePeriodSeconds: 10
+      containers:        
+      - name: rabbitmq
+        image: pivotalrabbitmq/rabbitmq-autocluster:3.7-k8s
+        imagePullPolicy: Always
+        ports:
+          - name: http
+            protocol: TCP
+            containerPort: 15672
+          - name: amqp
+            protocol: TCP
+            containerPort: 5672
+        #livenessProbe:
+        #  exec:
+        #    command: ["rabbitmqctl", "status"]
+        #  initialDelaySeconds: 30
+        #  timeoutSeconds: 5
+        #readinessProbe:
+        #  httpGet:
+        #    path: /
+        #    port: http
+        #  initialDelaySeconds: 5
+        #  timeoutSeconds: 30
+        volumeMounts:
+         - name: rabbitmq-cluster-data
+           mountPath: /var/lib/rabbitmq
+        env:
+          - name: MY_POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: RABBITMQ_USE_LONGNAME
+            value: "true"
+          - name: RABBITMQ_NODENAME
+            value: "rabbit@$(MY_POD_IP)"
+          - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+            value: "-setcookie cookie1"
+          - name: RABBITMQ_CTL_ERL_ARGS
+            value: "-setcookie cookie1"
+
+  volumeClaimTemplates:
+  - metadata:
+      name: rabbitmq-cluster-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
