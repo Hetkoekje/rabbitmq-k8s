@@ -1,22 +1,39 @@
-apiVersion: apps/v1beta1
+apiVersion: apps/v1beta2
 kind: StatefulSet
 metadata:
   name: rabbitmq
   namespace: test-rabbitmq
+  labels:
+    app: rabbitmq
+    environment: test-rabbitmq
 spec:
-  serviceName: rabbitmq
   replicas: 3
+  serviceName: rabbitmq
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: rabbitmq
+      environment: test-rabbitmq
   template:
     metadata:
       labels:
         app: rabbitmq
+        environment: test-rabbitmq
     spec:
       serviceAccountName: rabbitmq #important for rbac rules
-      terminationGracePeriodSeconds: 10
-      containers:        
+      terminationGracePeriodSeconds: 30
+      containers:
       - name: rabbitmq
-        image: pivotalrabbitmq/rabbitmq-autocluster:3.7-k8s
+        image: rabbitmq:3.7
         imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: 0.5
+            memory: 512Mi
+          requests:
+            cpu: 0.03
+            memory: 512Mi
         ports:
           - name: http
             protocol: TCP
@@ -24,37 +41,57 @@ spec:
           - name: amqp
             protocol: TCP
             containerPort: 5672
+        volumeMounts:
+         - name: rabbitmq-data
+           mountPath: /var/lib/rabbitmq
+         - name: rabbitmq-config
+           mountPath: /etc/rabbitmq
         #livenessProbe:
         #  exec:
         #    command: ["rabbitmqctl", "status"]
         #  initialDelaySeconds: 30
         #  timeoutSeconds: 5
-        #readinessProbe:
-        #  httpGet:
-        #    path: /
-        #    port: http
-        #  initialDelaySeconds: 5
-        #  timeoutSeconds: 30
-        volumeMounts:
-         - name: rabbitmq-cluster-data
-           mountPath: /var/lib/rabbitmq
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 5
+          timeoutSeconds: 30
         env:
-          - name: MY_POD_IP
+          - name: NAMESPACE
             valueFrom:
               fieldRef:
-                fieldPath: status.podIP
+                fieldPath: metadata.namespace
+          - name: HOSTNAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
           - name: RABBITMQ_USE_LONGNAME
             value: "true"
           - name: RABBITMQ_NODENAME
-            value: "rabbit@$(MY_POD_IP)"
-          - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
-            value: "-setcookie cookie1"
-          - name: RABBITMQ_CTL_ERL_ARGS
-            value: "-setcookie cookie1"
-
+            value: "rabbit@$(HOSTNAME).rabbitmq.$(NAMESPACE).svc.cluster.local"
+          - name: K8S_SERVICE_NAME
+            value: "rabbitmq"
+          - name: RABBITMQ_ERLANG_COOKIE
+            value: "mycookie"
+          - name: RABBITMQ_DEFAULT_USER
+            value: "admin"
+          - name: RABBITMQ_DEFAULT_PASS
+            value: "admin"
+      volumes:
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+            items:
+            - key: rabbitmq.conf
+              path: rabbitmq.conf
+            - key: enabled_plugins
+              path: enabled_plugins
   volumeClaimTemplates:
   - metadata:
-      name: rabbitmq-cluster-data
+      name: rabbitmq-data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: fast
     spec:
       accessModes:
       - ReadWriteOnce
